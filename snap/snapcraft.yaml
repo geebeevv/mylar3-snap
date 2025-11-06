@@ -1,7 +1,7 @@
 name: geebeevv-mylar3
 base: core24
 version: '0.8.3'
-summary: Automated Comic Book (cbr/cbz) downloader for NZB and torrents
+summary: Unofficial Release of Mylar3
 description: |
   This is an UNOFFICIAL Snap of the Mylar3 application.
 
@@ -14,9 +14,16 @@ description: |
   Official Github for the Mylar3 project: https://github.com/mylar3/mylar3
 
   Because this Snap runs as a service, it runs as ROOT. This means it cannot
-  read files not owned by root. Mylar3 needs access to your download directory
-  and comic library. You'll need to connect the removable-media plug or adjust
-  permissions accordingly.
+  read files not owned by root!! If you happen to attempt to mount a folder not owned by root
+  it may cause Mylar3 to fail to load.  Modifying the config file directly to remove the entyry
+  and then restarting the service may be necessary.  Config file can be found here: 
+  /var/snap/geebeevv-mylar3/common/data/config.ini
+  Deleting this file will reset all Mylar3 settings as well.
+  
+  Mylar3 needs access to your download directory and comic library. 
+  You'll need to adjust permissions accordingly.
+  sudo snap connect geebeevv-mylar3:removable-media
+  sudo snap connect geebeevv-mylar3:mount-observe
 
 grade: stable
 confinement: strict
@@ -36,6 +43,7 @@ apps:
       - network
       - network-bind
       - removable-media  # For access to download directories and comic libraries
+      - mount-observe # For access to mount table
     environment:
       PYTHONPATH: $SNAP/opt/mylar3:$SNAP/usr/lib/python3/dist-packages
       # Mylar3 configuration paths

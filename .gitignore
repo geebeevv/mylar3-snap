@@ -1,0 +1,23 @@
+# Snap build artifacts
+*.snap
+parts/
+stage/
+prime/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
