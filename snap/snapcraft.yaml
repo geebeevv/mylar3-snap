@@ -1,0 +1,175 @@
+name: geebeevv-mylar3
+base: core24
+version: '0.8.3'
+summary: Automated Comic Book (cbr/cbz) downloader for NZB and torrents
+description: |
+  This is an UNOFFICIAL Snap of the Mylar3 application.
+
+  Mylar3 is an automated Comic Book (cbr/cbz) downloader program for use with
+  NZB and torrents written in python. It supports SABnzbd, NZBGet, and many
+  torrent clients in addition to DDL. It will allow you to monitor weekly
+  pull-lists for items belonging to user-watchlists, and generate download
+  requests based on that.
+
+  Official Github for the Mylar3 project: https://github.com/mylar3/mylar3
+
+  Because this Snap runs as a service, it runs as ROOT. This means it cannot
+  read files not owned by root. Mylar3 needs access to your download directory
+  and comic library. You'll need to connect the removable-media plug or adjust
+  permissions accordingly.
+
+grade: stable
+confinement: strict
+compression: lzo
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  mylar3:
+    command: bin/mylar3-launcher
+    daemon: simple
+    restart-condition: always
+    install-mode: enable
+    plugs:
+      - network
+      - network-bind
+      - removable-media  # For access to download directories and comic libraries
+    environment:
+      PYTHONPATH: $SNAP/opt/mylar3:$SNAP/usr/lib/python3/dist-packages
+      # Mylar3 configuration paths
+      MYLAR_DATA_DIR: $SNAP_COMMON/data
+      PORT: 8090
+
+hooks:
+  install:
+    plugs:
+      - network
+      - network-bind
+
+parts:
+  mylar3:
+    plugin: python
+    source: https://github.com/mylar3/mylar3.git
+    source-type: git
+    source-tag: v0.8.3
+
+    # Python plugin will automatically handle requirements.txt
+    python-packages:
+      - APScheduler>=3.6.3
+      - beautifulsoup4>=4.8.2
+      - cfscrape>=2.0.8
+      - cheroot>=8.2.1
+      - CherryPy>=18.5.0
+      - configparser>=4.0.2
+      - feedparser>=5.2.1
+      - Mako>=1.1.0
+      - natsort>=3.5.2
+      - packaging>=22.0
+      - Pillow>=10.1
+      - portend>=2.6
+      - pycryptodome>=3.19.0
+      - pystun>=0.1.0
+      - pytz>=2019.3
+      - rarfile>=4.0
+      - requests[socks]>=2.22.0
+      - simplejson>=3.17.0
+      - six>=1.13.0
+      - tenacity>=8.2.3
+      - tzlocal>=2.0.0
+      - urllib3<2
+      - user_agent2>=2021.12.11
+
+    build-packages:
+      - git
+      - python3-dev
+      - build-essential
+      - libjpeg-dev
+      - zlib1g-dev
+      - libfreetype6-dev
+      - liblcms2-dev
+      - libwebp-dev
+      - tcl-dev
+      - tk-dev
+      - python3-tk
+
+    stage-packages:
+      - python3
+      - ca-certificates
+      - unrar
+      - libjpeg-turbo8
+      - libfreetype6
+      - liblcms2-2
+      - libwebp7
+
+    override-build: |
+      # Install Python dependencies
+      craftctl default
+
+      # Copy all Mylar3 source files to install location
+      mkdir -p $CRAFT_PART_INSTALL/opt/mylar3
+      cp -r $CRAFT_PART_SRC/* $CRAFT_PART_INSTALL/opt/mylar3/
+
+      # Create launcher script
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      cat > $CRAFT_PART_INSTALL/bin/mylar3-launcher << 'EOF'
+      #!/bin/bash
+
+      # Set up Mylar3 directories using snap-native locations
+      # $SNAP_DATA = /var/snap/mylar3/current/ (version-specific)
+      # $SNAP_COMMON = /var/snap/mylar3/common/ (shared across versions - preferred)
+
+      # Create necessary directories if they don't exist
+      mkdir -p "$SNAP_COMMON/data"
+      mkdir -p "$SNAP_COMMON/logs"
+      mkdir -p "$SNAP_COMMON/cache"
+      mkdir -p "$SNAP_COMMON/comics"
+
+      # Set data directory
+      export MYLAR_DATA_DIR="$SNAP_COMMON/data"
+
+      # Run Mylar3 with appropriate flags
+      cd $SNAP/opt/mylar3
+      exec python3 Mylar.py \
+        --datadir "$SNAP_COMMON/data" \
+        --config "$SNAP_COMMON/data/config.ini" \
+        --nolaunch
+      EOF
+      chmod +x $CRAFT_PART_INSTALL/bin/mylar3-launcher
+
+  install-hook:
+    plugin: nil
+    override-build: |
+      mkdir -p $CRAFT_PART_INSTALL/snap/hooks
+      cat > $CRAFT_PART_INSTALL/snap/hooks/install << 'EOF'
+      #!/bin/bash
+      # This hook runs on snap install
+      # Sets up initial directories and configuration
+
+      # Create persistent data directories
+      mkdir -p "$SNAP_COMMON/data"
+      mkdir -p "$SNAP_COMMON/logs"
+      mkdir -p "$SNAP_COMMON/cache"
+      mkdir -p "$SNAP_COMMON/comics"
+
+      echo "Mylar3 data directory: $SNAP_COMMON"
+      echo "Configuration will be stored in: $SNAP_COMMON/data"
+      echo "Database will be stored in: $SNAP_COMMON/data"
+      echo ""
+      echo "Mylar3 will autostart on boot. To manually control it:"
+      echo "  sudo snap stop geebeevv-mylar3"
+      echo "  sudo snap start geebeevv-mylar3"
+      echo "  sudo snap restart geebeevv-mylar3"
+      echo ""
+      echo "Access Mylar3 at: http://localhost:8090"
+      echo ""
+      echo "IMPORTANT: To access your comic library and download directories,"
+      echo "you may need to connect the removable-media interface:"
+      echo "  sudo snap connect geebeevv-mylar3:removable-media"
+      EOF
+      chmod +x $CRAFT_PART_INSTALL/snap/hooks/install
+
+layout:
+  /usr/local/share:
+    bind: $SNAP/usr/local/share
