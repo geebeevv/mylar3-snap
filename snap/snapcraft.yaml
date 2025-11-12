@@ -1,29 +1,31 @@
 name: geebeevv-mylar3
 base: core24
 version: '0.8.3'
+title: geebeevv-mylar3
 summary: Unofficial Release of Mylar3
 description: |
-  This is an UNOFFICIAL Snap of the Mylar3 application.
+  Mylar3 is an automated Comic Book (cbr/cbz) downloader for use with NZB and torrents. It monitors your pull-lists and automatically manages downloads.
 
-  Mylar3 is an automated Comic Book (cbr/cbz) downloader program for use with
-  NZB and torrents written in python. It supports SABnzbd, NZBGet, and many
-  torrent clients in addition to DDL. It will allow you to monitor weekly
-  pull-lists for items belonging to user-watchlists, and generate download
-  requests based on that.
+  ## Features
+  - NZB and torrent support with multiple clients (SABnzbd, NZBGet, qBittorrent, etc.)
+  - Pull-list monitoring and automated downloads
+  - Comic library management
 
-  Official Github for the Mylar3 project: https://github.com/mylar3/mylar3
+  ## Access
+  Web interface: http://localhost:8090
 
-  Because this Snap runs as a service, it runs as ROOT. This means it cannot
-  read files not owned by root!! If you happen to attempt to mount a folder not owned by root
-  it may cause Mylar3 to fail to load.  Modifying the config file directly to remove the entyry
-  and then restarting the service may be necessary.  Config file can be found here: 
-  /var/snap/geebeevv-mylar3/common/data/config.ini
-  Deleting this file will reset all Mylar3 settings as well.
-  
-  Mylar3 needs access to your download directory and comic library. 
-  You'll need to adjust permissions accordingly.
+  ## Important Notes
+  Runs as root, so it can only read files owned by root. You may need to adjust file permissions for your download and library directories.
+
+  ## Setup
   sudo snap connect geebeevv-mylar3:removable-media
   sudo snap connect geebeevv-mylar3:mount-observe
+
+links:
+  source-code: https://github.com/geebee/mylar3-snap
+  website: https://github.com/mylar3/mylar3
+  contact: mailto:cosmiccuttlefish@geebeemail.com
+  issues: https://github.com/geebee/mylar3-snap/issues
 
 grade: stable
 confinement: strict
@@ -39,6 +41,10 @@ apps:
     daemon: simple
     restart-condition: always
     install-mode: enable
+    # Allow 20 seconds for graceful shutdown (flush database, close connections)
+    stop-timeout: 20s
+    # Restart daemon on snap refresh for clean state (prevents old code + new files issues)
+    refresh-mode: restart
     plugs:
       - network
       - network-bind
@@ -178,6 +184,3 @@ parts:
       EOF
       chmod +x $CRAFT_PART_INSTALL/snap/hooks/install
 
-layout:
-  /usr/local/share:
-    bind: $SNAP/usr/local/share
