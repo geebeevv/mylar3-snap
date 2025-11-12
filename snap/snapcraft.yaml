@@ -21,12 +21,6 @@ description: |
   sudo snap connect geebeevv-mylar3:removable-media
   sudo snap connect geebeevv-mylar3:mount-observe
 
-links:
-  source-code: https://github.com/geebee/mylar3-snap
-  website: https://github.com/mylar3/mylar3
-  contact: mailto:cosmiccuttlefish@geebeemail.com
-  issues: https://github.com/geebee/mylar3-snap/issues
-
 grade: stable
 confinement: strict
 compression: lzo
