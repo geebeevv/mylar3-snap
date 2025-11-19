@@ -22,15 +22,32 @@ jobs:
 
       - name: Get latest upstream release
         id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Fetch latest release from mylar3/mylar3
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/mylar3/mylar3/releases/latest)
+          # Fetch latest release from mylar3/mylar3 with authentication
+          LATEST_RELEASE=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/mylar3/mylar3/releases/latest)
+
+          # Validate API response
+          if [ -z "$LATEST_RELEASE" ] || [ "$(echo "$LATEST_RELEASE" | jq -r '.message // empty')" = "Not Found" ]; then
+            echo "Error: Failed to fetch latest release from upstream"
+            exit 1
+          fi
+
           LATEST_VERSION=$(echo "$LATEST_RELEASE" | jq -r '.tag_name')
           RELEASE_URL=$(echo "$LATEST_RELEASE" | jq -r '.html_url')
           RELEASE_BODY=$(echo "$LATEST_RELEASE" | jq -r '.body')
           RELEASE_NAME=$(echo "$LATEST_RELEASE" | jq -r '.name')
           PUBLISHED_AT=$(echo "$LATEST_RELEASE" | jq -r '.published_at')
           IS_PRERELEASE=$(echo "$LATEST_RELEASE" | jq -r '.prerelease')
+
+          # Validate extracted data
+          if [ -z "$LATEST_VERSION" ] || [ "$LATEST_VERSION" = "null" ]; then
+            echo "Error: Could not extract version from release data"
+            exit 1
+          fi
 
           echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
           echo "release_url=$RELEASE_URL" >> $GITHUB_OUTPUT
@@ -46,8 +63,15 @@ jobs:
       - name: Get current snap version
         id: current
         run: |
-          # Extract current version from snapcraft.yaml
-          CURRENT_VERSION=$(grep '^version:' snap/snapcraft.yaml | sed "s/version: '\(.*\)'/\1/" | tr -d ' ')
+          # Extract current version from snapcraft.yaml (more robust parsing)
+          CURRENT_VERSION=$(grep '^version:' snap/snapcraft.yaml | awk '{print $2}' | tr -d "'\"")
+
+          # Validate extracted version
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "Error: Could not extract version from snapcraft.yaml"
+            exit 1
+          fi
+
           echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           echo "Current snap version: $CURRENT_VERSION"
 
@@ -74,7 +98,21 @@ jobs:
       - name: Checkout beta branch
         if: steps.check.outputs.needs_update == 'true'
         run: |
-          git fetch origin beta
+          # Fetch beta branch with retry logic
+          for i in 1 2 3 4; do
+            if git fetch origin beta; then
+              break
+            else
+              if [ $i -lt 4 ]; then
+                echo "Fetch failed, retrying in $((2**i)) seconds..."
+                sleep $((2**i))
+              else
+                echo "Error: Failed to fetch beta branch after 4 attempts"
+                exit 1
+              fi
+            fi
+          done
+
           git checkout beta
           git pull origin beta
 
@@ -83,6 +121,11 @@ jobs:
         run: |
           LATEST="${{ steps.upstream.outputs.latest_version }}"
           LATEST_CLEAN=$(echo "$LATEST" | sed 's/^v//')
+
+          echo "Updating snapcraft.yaml to version $LATEST_CLEAN (tag: $LATEST)"
+
+          # Backup original file
+          cp snap/snapcraft.yaml snap/snapcraft.yaml.bak
 
           # Update version field
           sed -i "s/^version: '.*'/version: '$LATEST_CLEAN'/" snap/snapcraft.yaml
@@ -98,7 +141,26 @@ jobs:
             sed -i "s/source-tag: .*/source-tag: $LATEST/" snap/snapcraft.yaml
           fi
 
-          echo "Updated snapcraft.yaml to version $LATEST_CLEAN (tag: $LATEST)"
+          # Validate changes were made
+          NEW_VERSION=$(grep '^version:' snap/snapcraft.yaml | awk '{print $2}' | tr -d "'\"")
+          NEW_TAG=$(grep 'source-tag:' snap/snapcraft.yaml | awk '{print $2}')
+
+          if [ "$NEW_VERSION" != "$LATEST_CLEAN" ]; then
+            echo "Error: Version update failed. Expected $LATEST_CLEAN, got $NEW_VERSION"
+            mv snap/snapcraft.yaml.bak snap/snapcraft.yaml
+            exit 1
+          fi
+
+          if [ "$NEW_TAG" != "$LATEST" ]; then
+            echo "Error: Tag update failed. Expected $LATEST, got $NEW_TAG"
+            mv snap/snapcraft.yaml.bak snap/snapcraft.yaml
+            exit 1
+          fi
+
+          # Remove backup if successful
+          rm snap/snapcraft.yaml.bak
+
+          echo "Successfully updated snapcraft.yaml to version $LATEST_CLEAN (tag: $LATEST)"
 
       - name: Commit and push to beta
         if: steps.check.outputs.needs_update == 'true'
@@ -108,8 +170,29 @@ jobs:
 
           LATEST="${{ steps.upstream.outputs.latest_version }}"
           git add snap/snapcraft.yaml
-          git commit -m "Update to Mylar3 $LATEST"
-          git push origin beta
+
+          # Check if there are changes to commit
+          if ! git diff --staged --quiet; then
+            git commit -m "Update to Mylar3 $LATEST"
+
+            # Push with retry logic
+            for i in 1 2 3 4; do
+              if git push -u origin beta; then
+                echo "Successfully pushed to beta branch"
+                break
+              else
+                if [ $i -lt 4 ]; then
+                  echo "Push failed, retrying in $((2**i)) seconds..."
+                  sleep $((2**i))
+                else
+                  echo "Error: Failed to push to beta branch after 4 attempts"
+                  exit 1
+                fi
+              fi
+            done
+          else
+            echo "No changes to commit"
+          fi
 
       - name: Create Pull Request
         if: steps.check.outputs.needs_update == 'true'
