@@ -48,10 +48,42 @@ apps:
       PYTHONPATH: $SNAP/opt/mylar3:$SNAP/usr/lib/python3/dist-packages
       # Mylar3 configuration paths
       MYLAR_DATA_DIR: $SNAP_COMMON/data
-      PORT: 8090
+
+  # CLI Commands for easy management
+  logs:
+    command: bin/mylar3-logs
+    plugs:
+      - network
+      - network-bind
+
+  status:
+    command: bin/mylar3-status
+    plugs:
+      - network
+      - network-bind
+
+  config-dir:
+    command: bin/mylar3-config-dir
+
+  health-check:
+    command: bin/mylar3-health-check
+    plugs:
+      - network
+      - network-bind
+
+  backup:
+    command: bin/mylar3-backup
+
+  restore:
+    command: bin/mylar3-restore
 
 hooks:
   install:
+    plugs:
+      - network
+      - network-bind
+
+  configure:
     plugs:
       - network
       - network-bind
@@ -137,14 +169,233 @@ parts:
       # Set data directory
       export MYLAR_DATA_DIR="$SNAP_COMMON/data"
 
-      # Run Mylar3 with appropriate flags
+      # Read configuration from snapctl
+      PORT=$(snapctl get port 2>/dev/null || echo "8090")
+      VERBOSE=$(snapctl get verbose 2>/dev/null || echo "false")
+      AUTO_BACKUP=$(snapctl get auto-backup 2>/dev/null || echo "none")
+      DISABLE_WEEKLY=$(snapctl get disable-weekly-check 2>/dev/null || echo "false")
+
+      # Build command-line arguments
+      MYLAR_ARGS="--datadir $SNAP_COMMON/data --config $SNAP_COMMON/data/config.ini --nolaunch --port $PORT"
+
+      # Add verbose flag if enabled
+      if [ "$VERBOSE" = "true" ]; then
+        MYLAR_ARGS="$MYLAR_ARGS --verbose"
+      fi
+
+      # Add backup option if configured
+      if [ "$AUTO_BACKUP" != "none" ]; then
+        MYLAR_ARGS="$MYLAR_ARGS --backup $AUTO_BACKUP"
+      fi
+
+      # Add noweekly flag if disabled
+      if [ "$DISABLE_WEEKLY" = "true" ]; then
+        MYLAR_ARGS="$MYLAR_ARGS --noweekly"
+      fi
+
+      # Run Mylar3 with configured flags
       cd $SNAP/opt/mylar3
-      exec python3 Mylar.py \
-        --datadir "$SNAP_COMMON/data" \
-        --config "$SNAP_COMMON/data/config.ini" \
-        --nolaunch
+      exec python3 Mylar.py $MYLAR_ARGS
       EOF
       chmod +x $CRAFT_PART_INSTALL/bin/mylar3-launcher
+
+      # Create CLI command: logs
+      cat > $CRAFT_PART_INSTALL/bin/mylar3-logs << 'EOF'
+      #!/bin/bash
+      # Show Mylar3 logs with follow option
+      if [ "$1" = "-f" ] || [ "$1" = "--follow" ]; then
+        exec journalctl -u snap.geebeevv-mylar3.mylar3 -f
+      else
+        exec journalctl -u snap.geebeevv-mylar3.mylar3 -n 100 --no-pager
+      fi
+      EOF
+      chmod +x $CRAFT_PART_INSTALL/bin/mylar3-logs
+
+      # Create CLI command: status
+      cat > $CRAFT_PART_INSTALL/bin/mylar3-status << 'EOF'
+      #!/bin/bash
+      echo "=== Mylar3 Service Status ==="
+      echo ""
+
+      # Check if service is running
+      if snapctl services geebeevv-mylar3.mylar3 | grep -q "active"; then
+        echo "Service: Running ✓"
+      else
+        echo "Service: Stopped ✗"
+      fi
+
+      # Get configuration
+      PORT=$(snapctl get port 2>/dev/null || echo "8090")
+      VERBOSE=$(snapctl get verbose 2>/dev/null || echo "false")
+      AUTO_BACKUP=$(snapctl get auto-backup 2>/dev/null || echo "none")
+      DISABLE_WEEKLY=$(snapctl get disable-weekly-check 2>/dev/null || echo "false")
+
+      echo ""
+      echo "=== Configuration ==="
+      echo "Port: $PORT"
+      echo "Verbose logging: $VERBOSE"
+      echo "Auto-backup: $AUTO_BACKUP"
+      echo "Disable weekly check: $DISABLE_WEEKLY"
+
+      echo ""
+      echo "=== Access ==="
+      echo "Web interface: http://localhost:$PORT"
+
+      echo ""
+      echo "=== Data Locations ==="
+      echo "Config & Database: $SNAP_COMMON/data"
+      echo "Logs: $SNAP_COMMON/logs"
+      echo "Cache: $SNAP_COMMON/cache"
+
+      echo ""
+      echo "=== Interface Connections ==="
+      if snap connections geebeevv-mylar3 | grep -q "removable-media.*connected"; then
+        echo "removable-media: Connected ✓"
+      else
+        echo "removable-media: Not connected (run: sudo snap connect geebeevv-mylar3:removable-media)"
+      fi
+
+      if snap connections geebeevv-mylar3 | grep -q "mount-observe.*connected"; then
+        echo "mount-observe: Connected ✓"
+      else
+        echo "mount-observe: Not connected (run: sudo snap connect geebeevv-mylar3:mount-observe)"
+      fi
+      EOF
+      chmod +x $CRAFT_PART_INSTALL/bin/mylar3-status
+
+      # Create CLI command: config-dir
+      cat > $CRAFT_PART_INSTALL/bin/mylar3-config-dir << 'EOF'
+      #!/bin/bash
+      echo "$SNAP_COMMON/data"
+      EOF
+      chmod +x $CRAFT_PART_INSTALL/bin/mylar3-config-dir
+
+      # Create CLI command: health-check
+      cat > $CRAFT_PART_INSTALL/bin/mylar3-health-check << 'EOF'
+      #!/bin/bash
+      echo "=== Mylar3 Health Check ==="
+      echo ""
+
+      # Check if service is active
+      if snapctl services geebeevv-mylar3.mylar3 | grep -q "active"; then
+        echo "✓ Service is running"
+      else
+        echo "✗ Service is not running"
+        exit 1
+      fi
+
+      # Check if web interface is responding
+      PORT=$(snapctl get port 2>/dev/null || echo "8090")
+      if curl -s -o /dev/null -w "%{http_code}" http://localhost:$PORT --max-time 5 | grep -q "200\|302"; then
+        echo "✓ Web interface responding on port $PORT"
+      else
+        echo "✗ Web interface not responding on port $PORT"
+        exit 1
+      fi
+
+      # Check if data directory exists and is writable
+      if [ -d "$SNAP_COMMON/data" ] && [ -w "$SNAP_COMMON/data" ]; then
+        echo "✓ Data directory accessible"
+      else
+        echo "✗ Data directory not accessible"
+        exit 1
+      fi
+
+      # Check if database exists
+      if [ -f "$SNAP_COMMON/data/mylar.db" ]; then
+        echo "✓ Database file exists"
+      else
+        echo "⚠ Database file not found (may be first run)"
+      fi
+
+      echo ""
+      echo "All checks passed! Mylar3 is healthy."
+      EOF
+      chmod +x $CRAFT_PART_INSTALL/bin/mylar3-health-check
+
+      # Create CLI command: backup
+      cat > $CRAFT_PART_INSTALL/bin/mylar3-backup << 'EOF'
+      #!/bin/bash
+      BACKUP_DIR="$SNAP_COMMON/backups"
+      TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+      echo "=== Mylar3 Backup ==="
+      echo ""
+
+      mkdir -p "$BACKUP_DIR"
+
+      # Backup config and database
+      if [ -f "$SNAP_COMMON/data/config.ini" ]; then
+        cp "$SNAP_COMMON/data/config.ini" "$BACKUP_DIR/config.ini.$TIMESTAMP"
+        echo "✓ Backed up config.ini"
+      fi
+
+      if [ -f "$SNAP_COMMON/data/mylar.db" ]; then
+        cp "$SNAP_COMMON/data/mylar.db" "$BACKUP_DIR/mylar.db.$TIMESTAMP"
+        echo "✓ Backed up mylar.db"
+      fi
+
+      echo ""
+      echo "Backup saved to: $BACKUP_DIR"
+      echo "Timestamp: $TIMESTAMP"
+
+      # Clean up old backups (keep last 5)
+      cd "$BACKUP_DIR"
+      ls -t config.ini.* 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null
+      ls -t mylar.db.* 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null
+      EOF
+      chmod +x $CRAFT_PART_INSTALL/bin/mylar3-backup
+
+      # Create CLI command: restore
+      cat > $CRAFT_PART_INSTALL/bin/mylar3-restore << 'EOF'
+      #!/bin/bash
+      BACKUP_DIR="$SNAP_COMMON/backups"
+
+      echo "=== Mylar3 Restore ==="
+      echo ""
+
+      if [ ! -d "$BACKUP_DIR" ]; then
+        echo "No backups found in $BACKUP_DIR"
+        exit 1
+      fi
+
+      # List available backups
+      echo "Available backups:"
+      echo ""
+      ls -lt "$BACKUP_DIR" | grep -v '^d' | grep -v '^total'
+      echo ""
+
+      if [ -z "$1" ]; then
+        echo "Usage: geebeevv-mylar3.restore <timestamp>"
+        echo "Example: geebeevv-mylar3.restore 20250119_120000"
+        exit 1
+      fi
+
+      TIMESTAMP="$1"
+
+      # Stop service before restore
+      echo "Stopping Mylar3 service..."
+      snapctl stop --disable geebeevv-mylar3.mylar3
+
+      # Restore files
+      if [ -f "$BACKUP_DIR/config.ini.$TIMESTAMP" ]; then
+        cp "$BACKUP_DIR/config.ini.$TIMESTAMP" "$SNAP_COMMON/data/config.ini"
+        echo "✓ Restored config.ini"
+      fi
+
+      if [ -f "$BACKUP_DIR/mylar.db.$TIMESTAMP" ]; then
+        cp "$BACKUP_DIR/mylar.db.$TIMESTAMP" "$SNAP_COMMON/data/mylar.db"
+        echo "✓ Restored mylar.db"
+      fi
+
+      # Restart service
+      echo "Restarting Mylar3 service..."
+      snapctl start --enable geebeevv-mylar3.mylar3
+
+      echo ""
+      echo "Restore complete!"
+      EOF
+      chmod +x $CRAFT_PART_INSTALL/bin/mylar3-restore
 
   install-hook:
     plugin: nil
@@ -161,20 +412,88 @@ parts:
       mkdir -p "$SNAP_COMMON/cache"
       mkdir -p "$SNAP_COMMON/comics"
 
-      echo "Mylar3 data directory: $SNAP_COMMON"
-      echo "Configuration will be stored in: $SNAP_COMMON/data"
-      echo "Database will be stored in: $SNAP_COMMON/data"
-      echo ""
-      echo "Mylar3 will autostart on boot. To manually control it:"
-      echo "  sudo snap stop geebeevv-mylar3"
-      echo "  sudo snap start geebeevv-mylar3"
-      echo "  sudo snap restart geebeevv-mylar3"
+      echo "Mylar3 installed successfully!"
       echo ""
       echo "Access Mylar3 at: http://localhost:8090"
       echo ""
-      echo "IMPORTANT: To access your comic library and download directories,"
-      echo "you may need to connect the removable-media interface:"
+      echo "=== Quick Start Commands ==="
+      echo "  geebeevv-mylar3.status        - View service status and configuration"
+      echo "  geebeevv-mylar3.logs          - View logs"
+      echo "  geebeevv-mylar3.health-check  - Check if service is healthy"
+      echo "  geebeevv-mylar3.backup        - Backup config and database"
+      echo ""
+      echo "=== Configuration ==="
+      echo "Change settings without editing config files:"
+      echo "  sudo snap set geebeevv-mylar3 port=8091"
+      echo "  sudo snap set geebeevv-mylar3 verbose=true"
+      echo "  sudo snap set geebeevv-mylar3 auto-backup=both"
+      echo ""
+      echo "=== File Access ==="
+      echo "To access your comic library and download directories:"
       echo "  sudo snap connect geebeevv-mylar3:removable-media"
+      echo ""
+      echo "Data directory: $SNAP_COMMON/data"
       EOF
       chmod +x $CRAFT_PART_INSTALL/snap/hooks/install
+
+  configure-hook:
+    plugin: nil
+    override-build: |
+      mkdir -p $CRAFT_PART_INSTALL/snap/hooks
+      cat > $CRAFT_PART_INSTALL/snap/hooks/configure << 'EOF'
+      #!/bin/bash
+      # This hook runs when configuration is changed via 'snap set'
+
+      # Get configuration values
+      PORT=$(snapctl get port 2>/dev/null)
+      VERBOSE=$(snapctl get verbose 2>/dev/null)
+      AUTO_BACKUP=$(snapctl get auto-backup 2>/dev/null)
+      DISABLE_WEEKLY=$(snapctl get disable-weekly-check 2>/dev/null)
+
+      # Validate port
+      if [ -n "$PORT" ]; then
+        if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1024 ] || [ "$PORT" -gt 65535 ]; then
+          echo "Error: Port must be a number between 1024 and 65535"
+          exit 1
+        fi
+      fi
+
+      # Validate verbose
+      if [ -n "$VERBOSE" ]; then
+        if [ "$VERBOSE" != "true" ] && [ "$VERBOSE" != "false" ]; then
+          echo "Error: verbose must be 'true' or 'false'"
+          exit 1
+        fi
+      fi
+
+      # Validate auto-backup
+      if [ -n "$AUTO_BACKUP" ]; then
+        if [ "$AUTO_BACKUP" != "none" ] && [ "$AUTO_BACKUP" != "ini" ] && [ "$AUTO_BACKUP" != "db" ] && [ "$AUTO_BACKUP" != "both" ]; then
+          echo "Error: auto-backup must be 'none', 'ini', 'db', or 'both'"
+          exit 1
+        fi
+      fi
+
+      # Validate disable-weekly-check
+      if [ -n "$DISABLE_WEEKLY" ]; then
+        if [ "$DISABLE_WEEKLY" != "true" ] && [ "$DISABLE_WEEKLY" != "false" ]; then
+          echo "Error: disable-weekly-check must be 'true' or 'false'"
+          exit 1
+        fi
+      fi
+
+      # Restart the service to apply changes
+      snapctl restart geebeevv-mylar3.mylar3
+
+      echo "Configuration updated successfully!"
+      echo ""
+      echo "Current settings:"
+      echo "  port: $(snapctl get port 2>/dev/null || echo '8090 (default)')"
+      echo "  verbose: $(snapctl get verbose 2>/dev/null || echo 'false (default)')"
+      echo "  auto-backup: $(snapctl get auto-backup 2>/dev/null || echo 'none (default)')"
+      echo "  disable-weekly-check: $(snapctl get disable-weekly-check 2>/dev/null || echo 'false (default)')"
+      echo ""
+      echo "Service restarted. Access Mylar3 at: http://localhost:$(snapctl get port 2>/dev/null || echo '8090')"
+      EOF
+      chmod +x $CRAFT_PART_INSTALL/snap/hooks/configure
 
