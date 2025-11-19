@@ -12,7 +12,6 @@ Official project: https://github.com/mylar3/mylar3
 
 - Runs as daemon with root privileges
 - Limited file system access due to snap confinement (requires manual interface connections)
-- Cannot access user home directories without `home` interface connection
 
 ## Installation
 
