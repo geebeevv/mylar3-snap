@@ -10,6 +10,20 @@ Mylar3 is an automated Comic Book (cbr/cbz) downloader program for use with NZB 
 
 Official project: https://github.com/mylar3/mylar3
 
+## Why Use the Snap?
+
+While Mylar3 is easy to install manually, the snap offers several advantages:
+
+- **Zero dependency management** - No need to manually install Python packages or worry about conflicts
+- **Automatic updates** - Get new versions without manual intervention
+- **Auto-starts on boot** - Runs as a system service with no configuration needed
+- **Easy management** - Simple CLI commands for common tasks (status, logs, backup, etc.)
+- **Configuration via snap set** - Change settings without editing config files
+- **Built-in backup/restore** - Protect your data with one command
+- **Isolated environment** - Doesn't interfere with other Python applications
+- **Consistent across distributions** - Same experience on Ubuntu, Fedora, Arch, etc.
+- **Rollback support** - Revert to previous versions if needed
+
 ## Installation
 
 ### Stable Channel (Recommended)
@@ -50,19 +64,63 @@ sudo snap connect geebeevv-mylar3:removable-media
 
 This allows access to `/media`, `/mnt`, and `/run/media` directories.
 
+## Easy Management with CLI Commands
+
+The snap includes convenient commands for managing Mylar3:
+
+```bash
+# View service status and configuration
+geebeevv-mylar3.status
+
+# View logs (last 100 lines)
+geebeevv-mylar3.logs
+geebeevv-mylar3.logs -f  # Follow mode
+
+# Show configuration directory
+geebeevv-mylar3.config-dir
+
+# Check service health
+geebeevv-mylar3.health-check
+
+# Backup configuration and database
+geebeevv-mylar3.backup
+
+# Restore from backup
+geebeevv-mylar3.restore <timestamp>
+```
+
+## Configuration via snap set
+
+Customize Mylar3 behavior without editing config files:
+
+```bash
+# Change web interface port (default: 8090)
+sudo snap set geebeevv-mylar3 port=8091
+
+# Enable verbose logging (default: false)
+sudo snap set geebeevv-mylar3 verbose=true
+
+# Enable automatic backups on startup (options: none, ini, db, both)
+sudo snap set geebeevv-mylar3 auto-backup=both
+
+# Disable weekly pull list check on startup (default: false)
+sudo snap set geebeevv-mylar3 disable-weekly-check=true
+
+# View current configuration
+geebeevv-mylar3.status
+```
+
+The service automatically restarts when configuration changes.
+
 ## Manual Control
+
+If you prefer traditional snap commands:
 
 ```bash
 sudo snap start geebeevv-mylar3
 sudo snap stop geebeevv-mylar3
 sudo snap restart geebeevv-mylar3
-```
-
-## Viewing Logs
-
-```bash
 sudo snap logs geebeevv-mylar3
-sudo snap logs geebeevv-mylar3 -f  # Follow mode
 ```
 
 ## Important Notes
